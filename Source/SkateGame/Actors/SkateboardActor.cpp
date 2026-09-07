@@ -1,5 +1,6 @@
 #include "Actors/SkateboardActor.h"
 
+#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -9,24 +10,40 @@ ASkateboardActor::ASkateboardActor()
 {
     PrimaryActorTick.bCanEverTick = true;
 
+    // Keep the simulated body at unit scale. Visual meshes are children, which
+    // prevents non-uniform deck scaling from distorting wheel/truck positions.
+    PhysicsBody = CreateDefaultSubobject<UBoxComponent>(TEXT("PhysicsBody"));
+    SetRootComponent(PhysicsBody);
+    PhysicsBody->SetBoxExtent(FVector(40.0f, 11.0f, 2.0f));
+    PhysicsBody->SetSimulatePhysics(true);
+    PhysicsBody->SetCollisionProfileName(TEXT("PhysicsActor"));
+    PhysicsBody->SetLinearDamping(0.05f);
+    PhysicsBody->SetAngularDamping(1.2f);
+    PhysicsBody->BodyInstance.bUseCCD = true;
+    PhysicsBody->SetMassOverrideInKg(NAME_None, 3.0f, true);
+
     BoardMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BoardMesh"));
-    SetRootComponent(BoardMesh);
+    BoardMesh->SetupAttachment(PhysicsBody);
 
-    BoardMesh->SetSimulatePhysics(true);
-    BoardMesh->SetCollisionProfileName(TEXT("PhysicsActor"));
-    BoardMesh->SetLinearDamping(0.05f);
-    BoardMesh->SetAngularDamping(1.2f);
-    BoardMesh->BodyInstance.bUseCCD = true;
-    BoardMesh->SetMassOverrideInKg(NAME_None, 3.0f, true);
+    FrontTruckMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FrontTruckMesh"));
+    FrontTruckMesh->SetupAttachment(PhysicsBody);
 
-    // Temporary fallback so the prototype is playable before final art is imported.
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
-    if (CubeMesh.Succeeded())
-    {
-        BoardMesh->SetStaticMesh(CubeMesh.Object);
-        BoardMesh->SetRelativeScale3D(FVector(0.80f, 0.22f, 0.04f));
-    }
+    RearTruckMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RearTruckMesh"));
+    RearTruckMesh->SetupAttachment(PhysicsBody);
 
+    FrontLeftWheelMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FrontLeftWheelMesh"));
+    FrontLeftWheelMesh->SetupAttachment(PhysicsBody);
+
+    FrontRightWheelMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FrontRightWheelMesh"));
+    FrontRightWheelMesh->SetupAttachment(PhysicsBody);
+
+    RearLeftWheelMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RearLeftWheelMesh"));
+    RearLeftWheelMesh->SetupAttachment(PhysicsBody);
+
+    RearRightWheelMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RearRightWheelMesh"));
+    RearRightWheelMesh->SetupAttachment(PhysicsBody);
+
+    ConfigurePrototypeVisuals();
     RebuildWheelOffsets();
 }
 
@@ -36,6 +53,7 @@ void ASkateboardActor::BeginPlay()
 
     RebuildWheelOffsets();
     UpdateWheelContacts();
+    UpdatePrototypeWheelVisuals();
     EnterMovementState(bGrounded ? ESkateMovementState::Grounded : ESkateMovementState::Airborne);
 }
 
@@ -43,7 +61,7 @@ void ASkateboardActor::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
-    if (!BoardMesh || DeltaSeconds <= 0.0f)
+    if (!PhysicsBody || DeltaSeconds <= 0.0f)
     {
         return;
     }
@@ -52,10 +70,11 @@ void ASkateboardActor::Tick(float DeltaSeconds)
 
     if (MovementState == ESkateMovementState::Airborne || MovementState == ESkateMovementState::Pop)
     {
-        LastAirborneVerticalSpeed = BoardMesh->GetPhysicsLinearVelocity().Z;
+        LastAirborneVerticalSpeed = PhysicsBody->GetPhysicsLinearVelocity().Z;
     }
 
     UpdateWheelContacts();
+    UpdatePrototypeWheelVisuals();
     ApplySuspensionForces();
     UpdateMovementState(DeltaSeconds);
     ApplyRollingForces(DeltaSeconds);
@@ -65,13 +84,13 @@ void ASkateboardActor::Tick(float DeltaSeconds)
 
 void ASkateboardActor::Push(float Strength)
 {
-    if (!bGrounded || MovementState == ESkateMovementState::Bail || !BoardMesh)
+    if (!bGrounded || MovementState == ESkateMovementState::Bail || !PhysicsBody)
     {
         return;
     }
 
     const float ClampedStrength = FMath::Clamp(Strength, 0.0f, 1.5f);
-    const FVector Velocity = BoardMesh->GetPhysicsLinearVelocity();
+    const FVector Velocity = PhysicsBody->GetPhysicsLinearVelocity();
     const FVector PlanarVelocity = FVector::VectorPlaneProject(Velocity, GroundNormal);
 
     if (PlanarVelocity.Size() >= MaxSpeed)
@@ -85,8 +104,8 @@ void ASkateboardActor::Push(float Strength)
         Forward = GetActorForwardVector().GetSafeNormal2D();
     }
 
-    // Velocity-change mode keeps tuning predictable if the board mass changes.
-    BoardMesh->AddImpulse(Forward * PushImpulse * ClampedStrength, NAME_None, true);
+    // Velocity-change mode keeps tuning predictable if total board mass changes.
+    PhysicsBody->AddImpulse(Forward * PushImpulse * ClampedStrength, NAME_None, true);
 }
 
 void ASkateboardActor::SetSteering(float InSteeringInput)
@@ -101,7 +120,7 @@ void ASkateboardActor::SetBraking(bool bEnabled)
 
 void ASkateboardActor::Ollie(float Strength)
 {
-    if (!CanPop() || !BoardMesh)
+    if (!CanPop() || !PhysicsBody)
     {
         return;
     }
@@ -109,14 +128,14 @@ void ASkateboardActor::Ollie(float Strength)
     const float ClampedStrength = FMath::Clamp(Strength, 0.25f, 1.5f);
     const FVector PopDirection = (GroundNormal * 0.75f + FVector::UpVector * 0.25f).GetSafeNormal();
 
-    BoardMesh->AddImpulse(PopDirection * OllieImpulse * ClampedStrength, NAME_None, true);
-    LastAirborneVerticalSpeed = BoardMesh->GetPhysicsLinearVelocity().Z;
+    PhysicsBody->AddImpulse(PopDirection * OllieImpulse * ClampedStrength, NAME_None, true);
+    LastAirborneVerticalSpeed = PhysicsBody->GetPhysicsLinearVelocity().Z;
     EnterMovementState(ESkateMovementState::Pop);
 }
 
 void ASkateboardActor::Kickflip(float Direction)
 {
-    if (!CanPop() || !BoardMesh)
+    if (!CanPop() || !PhysicsBody)
     {
         return;
     }
@@ -124,7 +143,7 @@ void ASkateboardActor::Kickflip(float Direction)
     const float TrickDirection = FMath::IsNearlyZero(Direction) ? 1.0f : FMath::Sign(Direction);
     Ollie(0.95f);
 
-    BoardMesh->AddAngularImpulseInRadians(
+    PhysicsBody->AddAngularImpulseInRadians(
         GetActorForwardVector().GetSafeNormal() * FlipAngularImpulse * TrickDirection,
         NAME_None,
         true);
@@ -132,7 +151,7 @@ void ASkateboardActor::Kickflip(float Direction)
 
 void ASkateboardActor::ShoveIt(float Direction)
 {
-    if (!CanPop() || !BoardMesh)
+    if (!CanPop() || !PhysicsBody)
     {
         return;
     }
@@ -141,7 +160,7 @@ void ASkateboardActor::ShoveIt(float Direction)
     Ollie(0.90f);
 
     const FVector SpinAxis = GroundNormal.IsNearlyZero() ? FVector::UpVector : GroundNormal.GetSafeNormal();
-    BoardMesh->AddAngularImpulseInRadians(
+    PhysicsBody->AddAngularImpulseInRadians(
         SpinAxis * ShoveAngularImpulse * TrickDirection,
         NAME_None,
         true);
@@ -149,13 +168,13 @@ void ASkateboardActor::ShoveIt(float Direction)
 
 void ASkateboardActor::ResetBoard(FVector NewLocation, FRotator NewRotation)
 {
-    if (!BoardMesh)
+    if (!PhysicsBody)
     {
         return;
     }
 
-    BoardMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
-    BoardMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+    PhysicsBody->SetPhysicsLinearVelocity(FVector::ZeroVector);
+    PhysicsBody->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
 
     SetActorLocationAndRotation(
         NewLocation,
@@ -173,6 +192,7 @@ void ASkateboardActor::ResetBoard(FVector NewLocation, FRotator NewRotation)
 
     EnterMovementState(ESkateMovementState::Airborne);
     UpdateWheelContacts();
+    UpdatePrototypeWheelVisuals();
 
     if (bGrounded)
     {
@@ -182,12 +202,82 @@ void ASkateboardActor::ResetBoard(FVector NewLocation, FRotator NewRotation)
 
 float ASkateboardActor::GetForwardSpeed() const
 {
-    if (!BoardMesh)
+    if (!PhysicsBody)
     {
         return 0.0f;
     }
 
-    return FVector::DotProduct(BoardMesh->GetPhysicsLinearVelocity(), GetActorForwardVector());
+    return FVector::DotProduct(PhysicsBody->GetPhysicsLinearVelocity(), GetActorForwardVector());
+}
+
+void ASkateboardActor::ConfigurePrototypeVisuals()
+{
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+
+    UStaticMeshComponent* CubeVisuals[] =
+    {
+        BoardMesh,
+        FrontTruckMesh,
+        RearTruckMesh
+    };
+
+    for (UStaticMeshComponent* Component : CubeVisuals)
+    {
+        if (!Component)
+        {
+            continue;
+        }
+
+        Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Component->SetGenerateOverlapEvents(false);
+
+        if (CubeMesh.Succeeded())
+        {
+            Component->SetStaticMesh(CubeMesh.Object);
+        }
+    }
+
+    if (BoardMesh)
+    {
+        BoardMesh->SetRelativeScale3D(FVector(0.80f, 0.22f, 0.04f));
+    }
+
+    if (FrontTruckMesh)
+    {
+        FrontTruckMesh->SetRelativeScale3D(FVector(0.055f, 0.19f, 0.015f));
+    }
+
+    if (RearTruckMesh)
+    {
+        RearTruckMesh->SetRelativeScale3D(FVector(0.055f, 0.19f, 0.015f));
+    }
+
+    UStaticMeshComponent* WheelVisuals[] =
+    {
+        FrontLeftWheelMesh,
+        FrontRightWheelMesh,
+        RearLeftWheelMesh,
+        RearRightWheelMesh
+    };
+
+    for (UStaticMeshComponent* Wheel : WheelVisuals)
+    {
+        if (!Wheel)
+        {
+            continue;
+        }
+
+        Wheel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Wheel->SetGenerateOverlapEvents(false);
+        Wheel->SetRelativeRotation(FRotator(90.0f, 0.0f, 0.0f));
+        Wheel->SetRelativeScale3D(FVector(0.056f, 0.056f, 0.032f));
+
+        if (CylinderMesh.Succeeded())
+        {
+            Wheel->SetStaticMesh(CylinderMesh.Object);
+        }
+    }
 }
 
 void ASkateboardActor::RebuildWheelOffsets()
@@ -199,6 +289,16 @@ void ASkateboardActor::RebuildWheelOffsets()
     WheelLocalOffsets[1] = FVector(HalfWheelbase, HalfTrackWidth, WheelAnchorHeight);
     WheelLocalOffsets[2] = FVector(-HalfWheelbase, -HalfTrackWidth, WheelAnchorHeight);
     WheelLocalOffsets[3] = FVector(-HalfWheelbase, HalfTrackWidth, WheelAnchorHeight);
+
+    if (FrontTruckMesh)
+    {
+        FrontTruckMesh->SetRelativeLocation(FVector(HalfWheelbase, 0.0f, -2.8f));
+    }
+
+    if (RearTruckMesh)
+    {
+        RearTruckMesh->SetRelativeLocation(FVector(-HalfWheelbase, 0.0f, -2.8f));
+    }
 }
 
 FVector ASkateboardActor::GetWheelAnchorWorldLocation(int32 WheelIndex) const
@@ -210,17 +310,58 @@ FVector ASkateboardActor::GetWheelAnchorWorldLocation(int32 WheelIndex) const
 
     const FVector& LocalOffset = WheelLocalOffsets[WheelIndex];
 
-    // Build the offset from the actor basis instead of TransformPosition so the
-    // temporary cube mesh scale does not shrink the virtual wheelbase/track.
     return GetActorLocation()
         + GetActorForwardVector() * LocalOffset.X
         + GetActorRightVector() * LocalOffset.Y
         + GetActorUpVector() * LocalOffset.Z;
 }
 
+UStaticMeshComponent* ASkateboardActor::GetWheelVisual(int32 WheelIndex) const
+{
+    switch (WheelIndex)
+    {
+        case 0: return FrontLeftWheelMesh;
+        case 1: return FrontRightWheelMesh;
+        case 2: return RearLeftWheelMesh;
+        case 3: return RearRightWheelMesh;
+        default: return nullptr;
+    }
+}
+
+void ASkateboardActor::UpdatePrototypeWheelVisuals()
+{
+    const FVector BoardUp = GetActorUpVector().GetSafeNormal();
+
+    for (int32 WheelIndex = 0; WheelIndex < WheelCount; ++WheelIndex)
+    {
+        UStaticMeshComponent* Wheel = GetWheelVisual(WheelIndex);
+        if (!Wheel)
+        {
+            continue;
+        }
+
+        float VisualSuspensionLength = SuspensionRestLength;
+        const FHitResult& Hit = WheelHits[WheelIndex];
+
+        if (Hit.bBlockingHit)
+        {
+            const FVector Anchor = GetWheelAnchorWorldLocation(WheelIndex);
+            const float ActualWheelDistance = FVector::DotProduct(Anchor - Hit.ImpactPoint, BoardUp);
+            VisualSuspensionLength = FMath::Clamp(
+                ActualWheelDistance - WheelRadius,
+                0.0f,
+                SuspensionRestLength);
+        }
+
+        FVector VisualOffset = WheelLocalOffsets[WheelIndex];
+        VisualOffset.Z -= VisualSuspensionLength;
+        Wheel->SetRelativeLocation(VisualOffset);
+    }
+}
+
 void ASkateboardActor::UpdateWheelContacts()
 {
-    if (!GetWorld() || !BoardMesh)
+    if (!GetWorld() || !PhysicsBody)
     {
         bGrounded = false;
         GroundedWheelCount = 0;
@@ -271,7 +412,7 @@ void ASkateboardActor::UpdateWheelContacts()
 
 void ASkateboardActor::ApplySuspensionForces()
 {
-    if (!BoardMesh || GroundedWheelCount <= 0)
+    if (!PhysicsBody || GroundedWheelCount <= 0)
     {
         return;
     }
@@ -299,14 +440,14 @@ void ASkateboardActor::ApplySuspensionForces()
             continue;
         }
 
-        const FVector PointVelocity = BoardMesh->GetPhysicsLinearVelocityAtPoint(Anchor);
+        const FVector PointVelocity = PhysicsBody->GetPhysicsLinearVelocityAtPoint(Anchor);
         const float NormalSpeed = FVector::DotProduct(PointVelocity, Hit.ImpactNormal);
 
         const float SpringForce = Compression * SuspensionStrength;
         const float DampingForce = -NormalSpeed * SuspensionDamping;
         const float ForceMagnitude = FMath::Max(0.0f, SpringForce + DampingForce);
 
-        BoardMesh->AddForceAtLocation(
+        PhysicsBody->AddForceAtLocation(
             Hit.ImpactNormal * ForceMagnitude,
             Anchor,
             NAME_None);
@@ -315,12 +456,12 @@ void ASkateboardActor::ApplySuspensionForces()
 
 void ASkateboardActor::ApplyRollingForces(float DeltaSeconds)
 {
-    if (GroundedWheelCount <= 0 || !BoardMesh || DeltaSeconds <= 0.0f || MovementState == ESkateMovementState::Bail)
+    if (GroundedWheelCount <= 0 || !PhysicsBody || DeltaSeconds <= 0.0f || MovementState == ESkateMovementState::Bail)
     {
         return;
     }
 
-    const FVector Velocity = BoardMesh->GetPhysicsLinearVelocity();
+    const FVector Velocity = PhysicsBody->GetPhysicsLinearVelocity();
     const FVector PlanarVelocity = FVector::VectorPlaneProject(Velocity, GroundNormal);
 
     if (!PlanarVelocity.IsNearlyZero())
@@ -329,8 +470,6 @@ void ASkateboardActor::ApplyRollingForces(float DeltaSeconds)
         const float LateralSpeed = FVector::DotProduct(PlanarVelocity, Right);
         const FVector LateralVelocity = Right * LateralSpeed;
 
-        // Rolling drag preserves momentum, while lateral grip keeps the board
-        // from behaving like a frictionless puck.
         FVector Acceleration = -PlanarVelocity * RollingResistance;
         Acceleration += -LateralVelocity * GroundGrip;
 
@@ -339,21 +478,21 @@ void ASkateboardActor::ApplyRollingForces(float DeltaSeconds)
             Acceleration += -PlanarVelocity * BrakeDrag;
         }
 
-        BoardMesh->AddForce(Acceleration, NAME_None, true);
+        PhysicsBody->AddForce(Acceleration, NAME_None, true);
     }
 
-    // Grounded self-righting is deliberately disabled during pop/air so flip
-    // tricks can rotate freely.
+    // Self-righting is deliberately disabled during pop/air so flip tricks can
+    // rotate freely instead of fighting the gameplay impulse.
     if (MovementState == ESkateMovementState::Grounded || MovementState == ESkateMovementState::Landing)
     {
         const FVector UprightAxis = FVector::CrossProduct(GetActorUpVector(), GroundNormal);
-        BoardMesh->AddTorqueInRadians(UprightAxis * SelfRightingStrength, NAME_None, true);
+        PhysicsBody->AddTorqueInRadians(UprightAxis * SelfRightingStrength, NAME_None, true);
     }
 }
 
 void ASkateboardActor::ApplySteering(float DeltaSeconds)
 {
-    if (!bGrounded || !BoardMesh || FMath::IsNearlyZero(SteeringInput) || DeltaSeconds <= 0.0f || MovementState == ESkateMovementState::Bail)
+    if (!bGrounded || !PhysicsBody || FMath::IsNearlyZero(SteeringInput) || DeltaSeconds <= 0.0f || MovementState == ESkateMovementState::Bail)
     {
         return;
     }
@@ -367,7 +506,7 @@ void ASkateboardActor::ApplySteering(float DeltaSeconds)
     const float SpeedScale = FMath::Clamp(Speed / 700.0f, 0.25f, 1.0f);
     const FVector SteeringAxis = GroundNormal.IsNearlyZero() ? FVector::UpVector : GroundNormal.GetSafeNormal();
 
-    BoardMesh->AddTorqueInRadians(
+    PhysicsBody->AddTorqueInRadians(
         SteeringAxis * SteeringInput * SteeringTorque * SpeedScale,
         NAME_None,
         true);
@@ -375,12 +514,12 @@ void ASkateboardActor::ApplySteering(float DeltaSeconds)
 
 void ASkateboardActor::ClampPlanarSpeed()
 {
-    if (!BoardMesh || MaxSpeed <= 0.0f)
+    if (!PhysicsBody || MaxSpeed <= 0.0f)
     {
         return;
     }
 
-    const FVector Velocity = BoardMesh->GetPhysicsLinearVelocity();
+    const FVector Velocity = PhysicsBody->GetPhysicsLinearVelocity();
     FVector PlanarVelocity(Velocity.X, Velocity.Y, 0.0f);
 
     if (PlanarVelocity.SizeSquared() <= FMath::Square(MaxSpeed))
@@ -389,12 +528,12 @@ void ASkateboardActor::ClampPlanarSpeed()
     }
 
     PlanarVelocity = PlanarVelocity.GetSafeNormal() * MaxSpeed;
-    BoardMesh->SetPhysicsLinearVelocity(FVector(PlanarVelocity.X, PlanarVelocity.Y, Velocity.Z));
+    PhysicsBody->SetPhysicsLinearVelocity(FVector(PlanarVelocity.X, PlanarVelocity.Y, Velocity.Z));
 }
 
 void ASkateboardActor::UpdateMovementState(float DeltaSeconds)
 {
-    if (!BoardMesh || DeltaSeconds <= 0.0f)
+    if (!PhysicsBody || DeltaSeconds <= 0.0f)
     {
         return;
     }
@@ -472,7 +611,7 @@ void ASkateboardActor::EnterMovementState(ESkateMovementState NewState)
 
 bool ASkateboardActor::CanPop() const
 {
-    return BoardMesh
+    return PhysicsBody
         && bGrounded
         && MovementState != ESkateMovementState::Bail
         && (MovementState == ESkateMovementState::Grounded || MovementState == ESkateMovementState::Landing);
