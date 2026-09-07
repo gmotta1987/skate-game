@@ -4,10 +4,10 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
-#include "Components/StaticMeshComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
-#include "Engine/World.h"
 
 ASkateCharacter::ASkateCharacter()
 {
@@ -56,6 +56,7 @@ void ASkateCharacter::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
 
     FollowSkateboard(DeltaSeconds);
+    UpdateDebugOverlay();
 
     if (Skateboard && Skateboard->GetActorLocation().Z < -3000.0f)
     {
@@ -77,6 +78,8 @@ void ASkateCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
     PlayerInputComponent->BindAction(TEXT("Brake"), IE_Pressed, this, &ASkateCharacter::BrakePressed);
     PlayerInputComponent->BindAction(TEXT("Brake"), IE_Released, this, &ASkateCharacter::BrakeReleased);
     PlayerInputComponent->BindAction(TEXT("Ollie"), IE_Pressed, this, &ASkateCharacter::Ollie);
+    PlayerInputComponent->BindAction(TEXT("Kickflip"), IE_Pressed, this, &ASkateCharacter::Kickflip);
+    PlayerInputComponent->BindAction(TEXT("ShoveIt"), IE_Pressed, this, &ASkateCharacter::ShoveIt);
     PlayerInputComponent->BindAction(TEXT("ResetRider"), IE_Pressed, this, &ASkateCharacter::ResetRider);
 }
 
@@ -130,27 +133,33 @@ void ASkateCharacter::Ollie()
     }
 }
 
+void ASkateCharacter::Kickflip()
+{
+    if (Skateboard)
+    {
+        Skateboard->Kickflip();
+    }
+}
+
+void ASkateCharacter::ShoveIt()
+{
+    if (Skateboard)
+    {
+        Skateboard->ShoveIt();
+    }
+}
+
 void ASkateCharacter::ResetRider()
 {
-    if (!Skateboard || !Skateboard->GetBoardMesh())
+    if (!Skateboard)
     {
         return;
     }
 
-    UStaticMeshComponent* BoardMesh = Skateboard->GetBoardMesh();
-    BoardMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
-    BoardMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
-
     const FVector ResetLocation = LastSafeBoardLocation + FVector::UpVector * 50.0f;
     const FRotator ResetRotation(0.0f, Skateboard->GetActorRotation().Yaw, 0.0f);
 
-    Skateboard->SetActorLocationAndRotation(
-        ResetLocation,
-        ResetRotation,
-        false,
-        nullptr,
-        ETeleportType::TeleportPhysics);
-
+    Skateboard->ResetBoard(ResetLocation, ResetRotation);
     SetActorLocation(ResetLocation + FVector::UpVector * RiderHeight);
 }
 
@@ -189,7 +198,7 @@ void ASkateCharacter::FollowSkateboard(float DeltaSeconds)
         return;
     }
 
-    if (Skateboard->IsGrounded())
+    if (Skateboard->IsGrounded() && !Skateboard->IsBailed())
     {
         LastSafeBoardLocation = Skateboard->GetActorLocation();
     }
@@ -206,4 +215,26 @@ void ASkateCharacter::FollowSkateboard(float DeltaSeconds)
     const FRotator CurrentRotation = GetActorRotation();
     const FRotator TargetRotation(0.0f, Skateboard->GetActorRotation().Yaw, 0.0f);
     SetActorRotation(FMath::RInterpTo(CurrentRotation, TargetRotation, DeltaSeconds, CameraFollowSpeed));
+}
+
+void ASkateCharacter::UpdateDebugOverlay() const
+{
+    if (!bShowSkateDebug || !Skateboard || !GEngine)
+    {
+        return;
+    }
+
+    const UEnum* StateEnum = StaticEnum<ESkateMovementState>();
+    const FString StateName = StateEnum
+        ? StateEnum->GetNameStringByValue(static_cast<int64>(Skateboard->GetMovementState()))
+        : TEXT("Unknown");
+
+    const float SpeedKmh = FMath::Abs(Skateboard->GetForwardSpeed()) * 0.036f;
+    const FString DebugText = FString::Printf(
+        TEXT("Skate | State: %s | Speed: %.1f km/h | Wheels: %d/4"),
+        *StateName,
+        SpeedKmh,
+        Skateboard->GetGroundedWheelCount());
+
+    GEngine->AddOnScreenDebugMessage(98765, 0.0f, FColor::Cyan, DebugText);
 }

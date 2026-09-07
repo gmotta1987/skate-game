@@ -40,6 +40,9 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Camera", meta = (ClampMin = "0.0"))
     float CameraFollowSpeed = 12.0f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Debug")
+    bool bShowSkateDebug = true;
+
 private:
     void Steer(float Value);
     void TurnCamera(float Value);
@@ -48,10 +51,13 @@ private:
     void BrakePressed();
     void BrakeReleased();
     void Ollie();
+    void Kickflip();
+    void ShoveIt();
     void ResetRider();
 
     void SpawnSkateboard();
     void FollowSkateboard(float DeltaSeconds);
+    void UpdateDebugOverlay() const;
 
     FVector LastSafeBoardLocation = FVector::ZeroVector;
 };
