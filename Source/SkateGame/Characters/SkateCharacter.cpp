@@ -41,6 +41,13 @@ void ASkateCharacter::BeginPlay()
     Super::BeginPlay();
 
     GetCharacterMovement()->DisableMovement();
+
+    // A blank Unreal level may start the pawn at world origin. Raise the
+    // prototype rider enough to let the board fall naturally onto the arena.
+    FVector SafeStart = GetActorLocation();
+    SafeStart.Z = FMath::Max(SafeStart.Z, RiderHeight + 80.0f);
+    SetActorLocation(SafeStart);
+
     SpawnSkateboard();
 }
 
