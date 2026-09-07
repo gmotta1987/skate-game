@@ -4,7 +4,6 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Engine/World.h"
@@ -77,6 +76,8 @@ void ASkateCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
     PlayerInputComponent->BindAction(TEXT("Brake"), IE_Pressed, this, &ASkateCharacter::BrakePressed);
     PlayerInputComponent->BindAction(TEXT("Brake"), IE_Released, this, &ASkateCharacter::BrakeReleased);
     PlayerInputComponent->BindAction(TEXT("Ollie"), IE_Pressed, this, &ASkateCharacter::Ollie);
+    PlayerInputComponent->BindAction(TEXT("Kickflip"), IE_Pressed, this, &ASkateCharacter::Kickflip);
+    PlayerInputComponent->BindAction(TEXT("ShoveIt"), IE_Pressed, this, &ASkateCharacter::ShoveIt);
     PlayerInputComponent->BindAction(TEXT("ResetRider"), IE_Pressed, this, &ASkateCharacter::ResetRider);
 }
 
@@ -130,27 +131,33 @@ void ASkateCharacter::Ollie()
     }
 }
 
+void ASkateCharacter::Kickflip()
+{
+    if (Skateboard)
+    {
+        Skateboard->Kickflip();
+    }
+}
+
+void ASkateCharacter::ShoveIt()
+{
+    if (Skateboard)
+    {
+        Skateboard->ShoveIt();
+    }
+}
+
 void ASkateCharacter::ResetRider()
 {
-    if (!Skateboard || !Skateboard->GetBoardMesh())
+    if (!Skateboard)
     {
         return;
     }
 
-    UStaticMeshComponent* BoardMesh = Skateboard->GetBoardMesh();
-    BoardMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
-    BoardMesh->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
-
     const FVector ResetLocation = LastSafeBoardLocation + FVector::UpVector * 50.0f;
     const FRotator ResetRotation(0.0f, Skateboard->GetActorRotation().Yaw, 0.0f);
 
-    Skateboard->SetActorLocationAndRotation(
-        ResetLocation,
-        ResetRotation,
-        false,
-        nullptr,
-        ETeleportType::TeleportPhysics);
-
+    Skateboard->ResetBoard(ResetLocation, ResetRotation);
     SetActorLocation(ResetLocation + FVector::UpVector * RiderHeight);
 }
 
@@ -189,7 +196,7 @@ void ASkateCharacter::FollowSkateboard(float DeltaSeconds)
         return;
     }
 
-    if (Skateboard->IsGrounded())
+    if (Skateboard->IsGrounded() && !Skateboard->IsBailed())
     {
         LastSafeBoardLocation = Skateboard->GetActorLocation();
     }
