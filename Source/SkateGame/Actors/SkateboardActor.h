@@ -65,7 +65,7 @@ protected:
     float GroundTraceDistance = 28.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Physics", meta = (ClampMin = "0.0"))
-    float SteeringTorque = 850000.0f;
+    float SteeringTorque = 3.5f;
 
 private:
     float SteeringInput = 0.0f;
