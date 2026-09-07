@@ -99,22 +99,22 @@ protected:
     float TrackWidth = 18.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Wheels")
-    float WheelAnchorHeight = -5.0f;
+    float WheelAnchorHeight = -3.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Wheels", meta = (ClampMin = "0.0"))
-    float WheelRadius = 3.0f;
+    float WheelRadius = 2.8f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Wheels", meta = (ClampMin = "0.0"))
-    float SuspensionRestLength = 9.0f;
+    float SuspensionRestLength = 1.8f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Wheels", meta = (ClampMin = "0.0"))
-    float WheelTraceStartOffset = 3.0f;
+    float WheelTraceStartOffset = 2.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Wheels", meta = (ClampMin = "0.0"))
-    float SuspensionStrength = 650.0f;
+    float SuspensionStrength = 900.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Wheels", meta = (ClampMin = "0.0"))
-    float SuspensionDamping = 22.0f;
+    float SuspensionDamping = 30.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Wheels", meta = (ClampMin = "1", ClampMax = "4"))
     int32 MinGroundedWheels = 2;
