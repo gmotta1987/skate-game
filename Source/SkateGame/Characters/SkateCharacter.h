@@ -48,6 +48,8 @@ private:
     void BrakePressed();
     void BrakeReleased();
     void Ollie();
+    void Kickflip();
+    void ShoveIt();
     void ResetRider();
 
     void SpawnSkateboard();
