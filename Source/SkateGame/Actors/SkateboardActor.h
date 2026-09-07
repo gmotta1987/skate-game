@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "SkateboardActor.generated.h"
 
+class UBoxComponent;
 class UStaticMeshComponent;
 
 UENUM(BlueprintType)
@@ -68,8 +69,29 @@ public:
 protected:
     virtual void BeginPlay() override;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate")
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Physics")
+    TObjectPtr<UBoxComponent> PhysicsBody;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Visual")
     TObjectPtr<UStaticMeshComponent> BoardMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Visual")
+    TObjectPtr<UStaticMeshComponent> FrontTruckMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Visual")
+    TObjectPtr<UStaticMeshComponent> RearTruckMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Visual")
+    TObjectPtr<UStaticMeshComponent> FrontLeftWheelMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Visual")
+    TObjectPtr<UStaticMeshComponent> FrontRightWheelMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Visual")
+    TObjectPtr<UStaticMeshComponent> RearLeftWheelMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skate|Visual")
+    TObjectPtr<UStaticMeshComponent> RearRightWheelMesh;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate|Physics", meta = (ClampMin = "0.0"))
     float PushImpulse = 150.0f;
@@ -157,6 +179,8 @@ private:
     float LastAirborneVerticalSpeed = 0.0f;
 
     void RebuildWheelOffsets();
+    void ConfigurePrototypeVisuals();
+    void UpdatePrototypeWheelVisuals();
     void UpdateWheelContacts();
     void ApplySuspensionForces();
     void ApplyRollingForces(float DeltaSeconds);
@@ -166,4 +190,5 @@ private:
     void EnterMovementState(ESkateMovementState NewState);
     bool CanPop() const;
     FVector GetWheelAnchorWorldLocation(int32 WheelIndex) const;
+    UStaticMeshComponent* GetWheelVisual(int32 WheelIndex) const;
 };
